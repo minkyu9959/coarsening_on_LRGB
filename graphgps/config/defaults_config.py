@@ -17,6 +17,8 @@ def overwrite_defaults_cfg(cfg):
     # Overwrite default rounding precision
     cfg.round = 5
 
+    cfg.device = 0
+
 
 register_config('overwrite_defaults', overwrite_defaults_cfg)
 

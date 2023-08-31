@@ -11,6 +11,7 @@ from ogb.utils.url import decide_download
 from torch_geometric.data import Data, download_url
 from torch_geometric.data import InMemoryDataset
 from tqdm import tqdm
+import numpy as np
 
 
 class PeptidesFunctionalDataset(InMemoryDataset):
@@ -43,7 +44,8 @@ class PeptidesFunctionalDataset(InMemoryDataset):
         self.folder = osp.join(root, 'peptides-functional')
 
         self.url = 'https://www.dropbox.com/s/ol2v01usvaxbsr8/peptide_multi_class_dataset.csv.gz?dl=1'
-        self.version = '701eb743e899f4d793f0e13c8fa5a1b4'  # MD5 hash of the intended dataset file
+        # MD5 hash of the intended dataset file
+        self.version = '701eb743e899f4d793f0e13c8fa5a1b4'
         self.url_stratified_split = 'https://www.dropbox.com/s/j4zcnx2eipuo0xz/splits_random_stratified_peptide.pickle?dl=1'
         self.md5sum_stratified_split = '5a0114bdadc80b94fc7ae974f13ef061'
 
@@ -94,21 +96,97 @@ class PeptidesFunctionalDataset(InMemoryDataset):
 
         print('Converting SMILES strings into graphs...')
         data_list = []
+        # for i in tqdm(range(len(smiles_list))):
+        #     data = Data()
+
+        #     smiles = smiles_list[i]
+        #     graph = self.smiles2graph(smiles)
+
+        #     assert (len(graph['edge_feat']) == graph['edge_index'].shape[1])
+        #     assert (len(graph['node_feat']) == graph['num_nodes'])
+
+        #     data.__num_nodes__ = int(graph['num_nodes'])
+        #     data.edge_index = torch.from_numpy(graph['edge_index']).to(
+        #         torch.int64)
+        #     data.edge_attr = torch.from_numpy(graph['edge_feat']).to(
+        #         torch.int64)
+        #     data.x = torch.from_numpy(graph['node_feat']).to(torch.int64)
+        #     data.y = torch.Tensor([eval(data_df['labels'].iloc[i])])
+
+        #     data_list.append(data)
+
+        print("##############진짜냐?")
+        print("##############진짜냐?")
+        print("##############진짜냐?")
+        print("##############진짜냐?")
+        print("##############진짜냐?")
+        print("##############진짜냐?")
+
+        r = 0.7
+
         for i in tqdm(range(len(smiles_list))):
+
             data = Data()
+
+            print("##############되는거냐?")
+            print("##############되는거냐?")
 
             smiles = smiles_list[i]
             graph = self.smiles2graph(smiles)
+
+            num_nodes = len(graph['node_feat'])
+            coarsened_nodes = [i for i in range(
+                num_nodes) if np.random.rand() < r]
+
+            edge_index = torch.transpose(torch.tensor(
+                graph['edge_index']), 0, 1).tolist()
+            edge_attr = graph['edge_feat'].tolist()
+
+            adj_matrix = torch.zeros((num_nodes, num_nodes))
+            for edge in edge_index:
+                adj_matrix[edge[0]][edge[1]] = 1
+
+            coarsened_adj_matrix = torch.zeros_like(adj_matrix)
+            coarsened_x = (torch.zeros_like(
+                torch.tensor(graph['node_feat']))).tolist()
+            coarsened_edge_index = []
+            coarsened_edge_attr = []
+
+            x = graph['node_feat'].tolist()
+
+            for i in range(num_nodes):
+                for j in range(num_nodes):
+                    if i in coarsened_nodes and j in coarsened_nodes and adj_matrix[i, j] == 1:
+
+                        coarsened_adj_matrix[i][j] = adj_matrix[i][j]
+                        coarsened_x[i][:] = x[i][:]
+
+                        for k in range(torch.tensor(x).shape[1]):
+                            coarsened_x[i][k] += x[j][k]
+
+                        edge_idx = edge_index.index([i, j])
+                        coarsened_edge_index.append([i, coarsened_nodes.index(j)])
+                        coarsened_edge_attr.append(edge_attr[edge_idx])
+
+            coarsened_edge_index = torch.tensor(coarsened_edge_index)
+            coarsened_edge_attr = torch.tensor(coarsened_edge_attr)
+
+            for i in coarsened_nodes:
+                neighbors = np.where(coarsened_adj_matrix[i, :] == 1)[0]
+            if len(neighbors) > 0:
+                for j in range(torch.tensor(x).shape[1]):
+                    coarsened_x[i][j] /= len(neighbors)
+
+            coarsened_x = torch.tensor(coarsened_x)
+            coarsened_edge_index = torch.transpose(coarsened_edge_index, 0, 1)
 
             assert (len(graph['edge_feat']) == graph['edge_index'].shape[1])
             assert (len(graph['node_feat']) == graph['num_nodes'])
 
             data.__num_nodes__ = int(graph['num_nodes'])
-            data.edge_index = torch.from_numpy(graph['edge_index']).to(
-                torch.int64)
-            data.edge_attr = torch.from_numpy(graph['edge_feat']).to(
-                torch.int64)
-            data.x = torch.from_numpy(graph['node_feat']).to(torch.int64)
+            data.edge_index = coarsened_edge_index
+            data.edge_attr = coarsened_edge_attr
+            data.x = coarsened_x
             data.y = torch.Tensor([eval(data_df['labels'].iloc[i])])
 
             data_list.append(data)
@@ -134,6 +212,73 @@ class PeptidesFunctionalDataset(InMemoryDataset):
         split_dict = replace_numpy_with_torchtensor(splits)
         return split_dict
 
+    def coarsening(self):
+
+        r = 0.7
+
+        data_df = pd.read_csv(osp.join(self.raw_dir,
+                                       'peptide_multi_class_dataset.csv.gz'))
+        smiles_list = data_df['smiles']
+
+        for i in tqdm(range(len(smiles_list))):
+            smiles = smiles_list[i]
+            graph = self.smiles2graph(smiles)
+
+            num_nodes = len(graph['node_feat'])
+            coarsened_nodes = [i for i in range(
+                num_nodes) if np.random.rand() < r]
+
+            edge_index = torch.transpose(torch.tensor(
+                graph['edge_index']), 0, 1).tolist()
+            edge_attr = graph['edge_feat'].tolist()
+
+            adj_matrix = torch.zeros((num_nodes, num_nodes))
+            for edge in edge_index:
+                adj_matrix[edge[0]][edge[1]] = 1
+
+            coarsened_adj_matrix = torch.zeros_like(adj_matrix)
+            coarsened_x = (torch.zeros_like(
+                torch.tensor(graph['node_feat']))).tolist()
+            coarsened_edge_index = []
+            coarsened_edge_attr = []
+
+            x = graph['node_feat'].tolist()
+
+            for i in range(num_nodes):
+                for j in range(num_nodes):
+                    if i in coarsened_nodes and j in coarsened_nodes and adj_matrix[i, j] == 1:
+
+                        coarsened_adj_matrix[i][j] = adj_matrix[i][j]
+                        coarsened_x[i][:] = x[i][:]
+
+                        for k in range(torch.tensor(x).shape[1]):
+                            coarsened_x[i][k] += x[j][k]
+
+                        edge_idx = edge_index.index([i, j])
+                        coarsened_edge_index.append(
+                            [i, coarsened_nodes.index(j)])
+                        coarsened_edge_attr.append(edge_attr[edge_idx])
+
+            coarsened_edge_index = torch.tensor(coarsened_edge_index)
+            coarsened_edge_attr = torch.tensor(coarsened_edge_attr)
+
+            for i in coarsened_nodes:
+                neighbors = np.where(coarsened_adj_matrix[i, :] == 1)[0]
+            if len(neighbors) > 0:
+                for j in range(torch.tensor(x).shape[1]):
+                    coarsened_x[i][j] /= len(neighbors)
+
+            coarsened_x = torch.tensor(coarsened_x)
+            coarsened_edge_index = torch.transpose(coarsened_edge_index, 0, 1)
+
+            print("###################해치웠나?")
+
+        print("###################해치웠나?")
+
+        # self.data['x'] = coarsened_x
+        # self.edge_index = coarsened_edge_index
+        # self.edge_attr = coarsened_edge_attr
+
 
 if __name__ == '__main__':
     dataset = PeptidesFunctionalDataset()
@@ -144,3 +289,4 @@ if __name__ == '__main__':
     print(dataset[100])
     print(dataset[100].y)
     print(dataset.get_idx_split())
+
