@@ -3,6 +3,7 @@ metric_best: ap
 wandb:
   use: True
   project: peptides-func
+  entity:
 dataset:
   format: OGB
   name: peptides-functional
