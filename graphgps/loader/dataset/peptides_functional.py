@@ -136,6 +136,100 @@ class PeptidesFunctionalDataset(InMemoryDataset):
             smiles = smiles_list[i]
             graph = self.smiles2graph(smiles)
 
+            #### Coarsening start ####
+
+            r = 0.3 
+
+            node_feat = graph['node_feat']
+            edge_index = graph['edge_index']
+            edge_attr = graph['edge_feat']
+            
+            num_edge = len(edge_index.T)
+            edge_index = edge_index.T
+            new_node = np.max(edge_index)
+            coarsened_edge = np.sort(np.random.choice(range(0, num_edge), int(num_edge * r/2), replace = False))
+            mark_del_node_feat = np.full(node_feat.shape[1], -1)
+            mark_del_edge_index = np.full(edge_index.shape[1], -1)
+            mark_del_edge_feat = np.full(edge_attr.shape[1], -1)  
+
+            for idx_c_edge in range(len(coarsened_edge)):
+   
+                dup_edge = np.array([edge_index[coarsened_edge[idx_c_edge]][1], edge_index[coarsened_edge[idx_c_edge]][0]])
+                
+                for j in range(len(coarsened_edge)):
+                    if j != idx_c_edge:
+                            
+                        if (edge_index[coarsened_edge[j]] == dup_edge).all():
+                            coarsened_edge = np.delete(coarsened_edge, j)
+                            break
+
+                if idx_c_edge+1 == len(coarsened_edge):
+                    break
+
+            for idx_c_edge in coarsened_edge:
+  
+                new_node += 1
+
+                c_source_node = edge_index[idx_c_edge, 0]
+                c_target_node = edge_index[idx_c_edge, 1]
+
+                # print("target edge : ", [c_source_node, c_target_node])
+                if c_source_node == -1 or c_target_node == -1:
+                    continue
+
+                new_node_feat = node_feat[c_source_node] + node_feat[c_target_node]      
+
+                # Marking deleted node features by -1 array
+                node_feat[c_source_node] = mark_del_node_feat
+                node_feat[c_target_node] = mark_del_node_feat
+                node_feat = np.vstack((node_feat, new_node_feat))
+                
+                # Replacing coarsened node index to new node index
+                mask_source = np.logical_or(edge_index[:, 0] == c_source_node, edge_index[:, 0] == c_target_node)
+                mask_target = np.logical_or(edge_index[:, 1] == c_source_node, edge_index[:, 1] == c_target_node)
+                edge_index[mask_source, 0] = new_node
+                edge_index[mask_target, 1] = new_node
+
+                # Updating edge features for coarsened edges
+                edge_attr[mask_source] = edge_attr[mask_source].sum(axis = 0)
+                edge_attr[mask_target] = edge_attr[mask_target].sum(axis = 0)
+
+                # Marking deleted edge indices and features by [-1, -1] and [-1, -1, ... , -1]
+                mask_self_loop = edge_index[:, 0] == edge_index[:, 1]
+                edge_index[mask_self_loop] = mark_del_edge_index
+                edge_attr[mask_self_loop] = mark_del_edge_feat
+
+            # Node feature part
+
+            rows_to_delete = np.where(np.all(node_feat == mark_del_node_feat, axis=1)) 
+            node_feat = np.delete(node_feat, rows_to_delete, axis=0) # Delete [-1, ... , -1]
+
+            # Edge feature part
+
+            edge_dict = {}
+            for i, edge in enumerate(edge_index):
+                key = tuple(edge)
+                if key in edge_dict:
+                    if np.all(edge_attr[edge_dict[key]] == mark_del_edge_feat):
+                        continue
+                    else:
+                        edge_attr[edge_dict[key]] += edge_attr[i]
+                else:
+                    edge_dict[key] = i
+            unique_edge_attr = edge_attr[list(edge_dict.values())] # Aggregate edge features
+            edge_attr = unique_edge_attr[~np.all(unique_edge_attr == mark_del_edge_feat, axis = 1)] # Delete [-1, ... -1]
+
+            rows_to_delete = np.where(np.all(edge_index == mark_del_edge_index, axis=1))
+            edge_index = np.delete(edge_index, rows_to_delete, axis=0) # Delete [-1, -1]
+            edge_index = np.unique(edge_index, axis = 0).T # Delete duplicated node pairs
+
+            flattened_edge_index = edge_index.flatten()
+            unique_elements = np.unique(flattened_edge_index)
+            element_mapping = {element: new_value for new_value, element in enumerate(unique_elements)}
+            edge_index = np.vectorize(element_mapping.get)(edge_index)
+
+            #### Coarsening finish ####
+
             assert (len(graph['edge_feat']) == graph['edge_index'].shape[1])
             assert (len(graph['node_feat']) == graph['num_nodes'])
 
@@ -150,82 +244,6 @@ class PeptidesFunctionalDataset(InMemoryDataset):
             data_list.append(data)
 
             break
-
-        # print("##############진짜냐?")
-        # print("##############진짜냐?")
-        # print("##############진짜냐?")
-        # print("##############진짜냐?")
-        # print("##############진짜냐?")
-        # print("##############진짜냐?")
-
-        # r = 0.7
-
-        # for i in tqdm(range(len(smiles_list))):
-
-        #     data = Data()
-
-        #     print("##############되는거냐?")
-        #     print("##############되는거냐?")
-
-        #     smiles = smiles_list[i]
-        #     graph = self.smiles2graph(smiles)
-
-        #     num_nodes = len(graph['node_feat'])
-        #     coarsened_nodes = [i for i in range(
-        #         num_nodes) if np.random.rand() < r]
-
-        #     edge_index = torch.transpose(torch.tensor(
-        #         graph['edge_index']), 0, 1).tolist()
-        #     edge_attr = graph['edge_feat'].tolist()
-
-        #     adj_matrix = torch.zeros((num_nodes, num_nodes))
-        #     for edge in edge_index:
-        #         adj_matrix[edge[0]][edge[1]] = 1
-
-        #     coarsened_adj_matrix = torch.zeros_like(adj_matrix)
-        #     coarsened_x = (torch.zeros_like(
-        #         torch.tensor(graph['node_feat']))).tolist()
-        #     coarsened_edge_index = []
-        #     coarsened_edge_attr = []
-
-        #     x = graph['node_feat'].tolist()
-
-        #     for i in range(num_nodes):
-        #         for j in range(num_nodes):
-        #             if i in coarsened_nodes and j in coarsened_nodes and adj_matrix[i, j] == 1:
-
-        #                 coarsened_adj_matrix[i][j] = adj_matrix[i][j]
-        #                 coarsened_x[i][:] = x[i][:]
-
-        #                 for k in range(torch.tensor(x).shape[1]):
-        #                     coarsened_x[i][k] += x[j][k]
-
-        #                 edge_idx = edge_index.index([i, j])
-        #                 coarsened_edge_index.append([i, coarsened_nodes.index(j)])
-        #                 coarsened_edge_attr.append(edge_attr[edge_idx])
-
-        #     coarsened_edge_index = torch.tensor(coarsened_edge_index)
-        #     coarsened_edge_attr = torch.tensor(coarsened_edge_attr)
-
-        #     for i in coarsened_nodes:
-        #         neighbors = np.where(coarsened_adj_matrix[i, :] == 1)[0]
-        #     if len(neighbors) > 0:
-        #         for j in range(torch.tensor(x).shape[1]):
-        #             coarsened_x[i][j] /= len(neighbors)
-
-        #     coarsened_x = torch.tensor(coarsened_x)
-        #     coarsened_edge_index = torch.transpose(coarsened_edge_index, 0, 1)
-
-        #     assert (len(graph['edge_feat']) == graph['edge_index'].shape[1])
-        #     assert (len(graph['node_feat']) == graph['num_nodes'])
-
-        #     data.__num_nodes__ = int(graph['num_nodes'])
-        #     data.edge_index = coarsened_edge_index
-        #     data.edge_attr = coarsened_edge_attr
-        #     data.x = coarsened_x
-        #     data.y = torch.Tensor([eval(data_df['labels'].iloc[i])])
-
-        #     data_list.append(data)
 
         if self.pre_transform is not None:
             data_list = [self.pre_transform(data) for data in data_list]
