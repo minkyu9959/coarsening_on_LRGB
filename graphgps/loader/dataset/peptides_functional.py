@@ -228,6 +228,11 @@ class PeptidesFunctionalDataset(InMemoryDataset):
             element_mapping = {element: new_value for new_value, element in enumerate(unique_elements)}
             edge_index = np.vectorize(element_mapping.get)(edge_index)
 
+            graph['num_nodes'] = len(node_feat)
+            graph['node_feat'] = node_feat
+            graph['edge_index'] = edge_index
+            graph['edge_feat'] = edge_attr
+
             #### Coarsening finish ####
 
             assert (len(graph['edge_feat']) == graph['edge_index'].shape[1])
@@ -242,8 +247,6 @@ class PeptidesFunctionalDataset(InMemoryDataset):
             data.y = torch.Tensor([eval(data_df['labels'].iloc[i])])
 
             data_list.append(data)
-
-            break
 
         if self.pre_transform is not None:
             data_list = [self.pre_transform(data) for data in data_list]
@@ -266,68 +269,68 @@ class PeptidesFunctionalDataset(InMemoryDataset):
         split_dict = replace_numpy_with_torchtensor(splits)
         return split_dict
 
-    def coarsening(self):
+    # def coarsening(self):
 
-        r = 0.7
+    #     r = 0.7
 
-        data_df = pd.read_csv(osp.join(self.raw_dir,
-                                       'peptide_multi_class_dataset.csv.gz'))
-        smiles_list = data_df['smiles']
+    #     data_df = pd.read_csv(osp.join(self.raw_dir,
+    #                                    'peptide_multi_class_dataset.csv.gz'))
+    #     smiles_list = data_df['smiles']
 
-        for i in tqdm(range(len(smiles_list))):
-            smiles = smiles_list[i]
-            graph = self.smiles2graph(smiles)
+    #     for i in tqdm(range(len(smiles_list))):
+    #         smiles = smiles_list[i]
+    #         graph = self.smiles2graph(smiles)
 
-            num_nodes = len(graph['node_feat'])
-            coarsened_nodes = [i for i in range(
-                num_nodes) if np.random.rand() < r]
+    #         num_nodes = len(graph['node_feat'])
+    #         coarsened_nodes = [i for i in range(
+    #             num_nodes) if np.random.rand() < r]
 
-            edge_index = torch.transpose(torch.tensor(
-                graph['edge_index']), 0, 1).tolist()
-            edge_attr = graph['edge_feat'].tolist()
+    #         edge_index = torch.transpose(torch.tensor(
+    #             graph['edge_index']), 0, 1).tolist()
+    #         edge_attr = graph['edge_feat'].tolist()
 
-            adj_matrix = torch.zeros((num_nodes, num_nodes))
-            for edge in edge_index:
-                adj_matrix[edge[0]][edge[1]] = 1
+    #         adj_matrix = torch.zeros((num_nodes, num_nodes))
+    #         for edge in edge_index:
+    #             adj_matrix[edge[0]][edge[1]] = 1
 
-            coarsened_adj_matrix = torch.zeros_like(adj_matrix)
-            coarsened_x = (torch.zeros_like(
-                torch.tensor(graph['node_feat']))).tolist()
-            coarsened_edge_index = []
-            coarsened_edge_attr = []
+    #         coarsened_adj_matrix = torch.zeros_like(adj_matrix)
+    #         coarsened_x = (torch.zeros_like(
+    #             torch.tensor(graph['node_feat']))).tolist()
+    #         coarsened_edge_index = []
+    #         coarsened_edge_attr = []
 
-            x = graph['node_feat'].tolist()
+    #         x = graph['node_feat'].tolist()
 
-            for i in range(num_nodes):
-                for j in range(num_nodes):
-                    if i in coarsened_nodes and j in coarsened_nodes and adj_matrix[i, j] == 1:
+    #         for i in range(num_nodes):
+    #             for j in range(num_nodes):
+    #                 if i in coarsened_nodes and j in coarsened_nodes and adj_matrix[i, j] == 1:
 
-                        coarsened_adj_matrix[i][j] = adj_matrix[i][j]
-                        coarsened_x[i][:] = x[i][:]
+    #                     coarsened_adj_matrix[i][j] = adj_matrix[i][j]
+    #                     coarsened_x[i][:] = x[i][:]
 
-                        for k in range(torch.tensor(x).shape[1]):
-                            coarsened_x[i][k] += x[j][k]
+    #                     for k in range(torch.tensor(x).shape[1]):
+    #                         coarsened_x[i][k] += x[j][k]
 
-                        edge_idx = edge_index.index([i, j])
-                        coarsened_edge_index.append(
-                            [i, coarsened_nodes.index(j)])
-                        coarsened_edge_attr.append(edge_attr[edge_idx])
+    #                     edge_idx = edge_index.index([i, j])
+    #                     coarsened_edge_index.append(
+    #                         [i, coarsened_nodes.index(j)])
+    #                     coarsened_edge_attr.append(edge_attr[edge_idx])
 
-            coarsened_edge_index = torch.tensor(coarsened_edge_index)
-            coarsened_edge_attr = torch.tensor(coarsened_edge_attr)
+    #         coarsened_edge_index = torch.tensor(coarsened_edge_index)
+    #         coarsened_edge_attr = torch.tensor(coarsened_edge_attr)
 
-            # for i in coarsened_nodes:
-            #     neighbors = np.where(coarsened_adj_matrix[i, :] == 1)[0]
-            # if len(neighbors) > 0:
-            #     for j in range(torch.tensor(x).shape[1]):
-            #         coarsened_x[i][j] /= len(neighbors)
+    #         # for i in coarsened_nodes:
+    #         #     neighbors = np.where(coarsened_adj_matrix[i, :] == 1)[0]
+    #         # if len(neighbors) > 0:
+    #         #     for j in range(torch.tensor(x).shape[1]):
+    #         #         coarsened_x[i][j] /= len(neighbors)
 
-            coarsened_x = torch.tensor(coarsened_x)
-            coarsened_edge_index = torch.transpose(coarsened_edge_index, 0, 1)
+    #         coarsened_x = torch.tensor(coarsened_x)
+    #         coarsened_edge_index = torch.transpose(coarsened_edge_index, 0, 1)
 
-        # self.data['x'] = coarsened_x
-        # self.edge_index = coarsened_edge_index
-        # self.edge_attr = coarsened_edge_attr
+    #     # self.data['x'] = coarsened_x
+    #     # self.edge_index = coarsened_edge_index
+    #     # self.edge_attr = coarsened_edge_attr
 
 
 if __name__ == '__main__':
